@@ -78,7 +78,7 @@ async def send_note(callback: CallbackQuery, bot: Bot):
 @router.callback_query(F.data == "back:start")
 async def back_to_start(callback: CallbackQuery):
     from handlers.start import get_subjects_keyboard
-    keyboard = await get_subjects_keyboard()
+    _, keyboard = await get_subjects_keyboard()
     await callback.message.edit_text(
         "📚 Выбери предмет:",
         reply_markup=keyboard

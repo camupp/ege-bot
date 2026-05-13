@@ -9,10 +9,14 @@ from database.db import SessionLocal, Subject
 router = Router()
 
 
+async def get_subjects(session):
+    result = await session.execute(select(Subject).order_by(Subject.name))
+    return result.scalars().all()
+
+
 async def get_subjects_keyboard():
     async with SessionLocal() as session:
-        result = await session.execute(select(Subject).order_by(Subject.name))
-        subjects = result.scalars().all()
+        subjects = await get_subjects(session)
 
     builder = InlineKeyboardBuilder()
     for subject in subjects:
@@ -21,12 +25,20 @@ async def get_subjects_keyboard():
             callback_data=f"subject:{subject.id}"
         )
     builder.adjust(2)
-    return builder.as_markup()
+    return subjects, builder.as_markup()
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
-    keyboard = await get_subjects_keyboard()
+    subjects, keyboard = await get_subjects_keyboard()
+
+    if not subjects:
+        await message.answer(
+            "👋 Привет! Я помогу тебе подготовиться к ЕГЭ.\n\n"
+            "😔 Пока предметов нет. Загляни позже!"
+        )
+        return
+
     await message.answer(
         "👋 Привет! Я помогу тебе подготовиться к ЕГЭ.\n\n"
         "📚 Выбери предмет:",

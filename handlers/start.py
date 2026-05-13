@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
@@ -7,6 +7,11 @@ from sqlalchemy import select
 from database.db import SessionLocal, Subject, School, UserSchool
 
 router = Router()
+
+MAIN_MENU = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📚 Предметы"), KeyboardButton(text="🏫 Сменить школу")]],
+    resize_keyboard=True
+)
 
 
 async def get_schools_keyboard():
@@ -29,7 +34,6 @@ async def get_subjects_keyboard():
     builder = InlineKeyboardBuilder()
     for subject in subjects:
         builder.button(text=f"{subject.emoji} {subject.name}", callback_data=f"subject:{subject.id}")
-    builder.button(text="🏫 Сменить школу", callback_data="change_school")
     builder.adjust(2)
     return subjects, builder.as_markup()
 
@@ -42,12 +46,10 @@ async def cmd_start(message: Message):
     if user_school:
         subjects, keyboard = await get_subjects_keyboard()
         if not subjects:
-            await message.answer("😔 Пока предметов нет. Загляни позже!")
+            await message.answer("😔 Пока предметов нет. Загляни позже!", reply_markup=MAIN_MENU)
             return
-        await message.answer(
-            "👋 Привет! Я помогу тебе подготовиться к ЕГЭ.\n\n📚 Выбери предмет:",
-            reply_markup=keyboard
-        )
+        await message.answer("👋 Привет! Я помогу тебе подготовиться к ЕГЭ.", reply_markup=MAIN_MENU)
+        await message.answer("📚 Выбери предмет:", reply_markup=keyboard)
     else:
         schools, keyboard = await get_schools_keyboard()
         if not schools:
@@ -73,12 +75,28 @@ async def select_school(callback: CallbackQuery):
 
     subjects, keyboard = await get_subjects_keyboard()
     if not subjects:
-        await callback.message.edit_text("😔 Пока предметов нет. Загляни позже!")
+        await callback.message.answer("😔 Пока предметов нет. Загляни позже!", reply_markup=MAIN_MENU)
         await callback.answer()
         return
 
-    await callback.message.edit_text("📚 Выбери предмет:", reply_markup=keyboard)
+    await callback.message.answer("✅ Школа выбрана!", reply_markup=MAIN_MENU)
+    await callback.message.answer("📚 Выбери предмет:", reply_markup=keyboard)
     await callback.answer()
+
+
+@router.message(F.text == "📚 Предметы")
+async def menu_subjects(message: Message):
+    subjects, keyboard = await get_subjects_keyboard()
+    if not subjects:
+        await message.answer("😔 Пока предметов нет. Загляни позже!")
+        return
+    await message.answer("📚 Выбери предмет:", reply_markup=keyboard)
+
+
+@router.message(F.text == "🏫 Сменить школу")
+async def menu_change_school(message: Message):
+    schools, keyboard = await get_schools_keyboard()
+    await message.answer("🏫 Выбери онлайн-школу:", reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "change_school")

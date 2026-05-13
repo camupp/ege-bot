@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, Integer, ForeignKey, DateTime, func
+from sqlalchemy import String, Integer, BigInteger, ForeignKey, DateTime, func
 import datetime
 
 from config import DATABASE_URL
@@ -28,7 +28,7 @@ class School(Base):
 class UserSchool(Base):
     __tablename__ = "user_schools"
 
-    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
 
     school: Mapped["School"] = relationship()

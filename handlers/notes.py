@@ -4,22 +4,37 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.db import SessionLocal, Topic, Note
+from database.db import SessionLocal, Topic, Note, UserSchool
 
 router = Router()
+
+CONTENT_LABELS = {
+    "theory": "📖 Теория",
+    "practice": "✏️ Практика",
+}
 
 
 @router.callback_query(F.data.startswith("topic:"))
 async def show_notes(callback: CallbackQuery):
-    topic_id = int(callback.data.split(":")[1])
+    parts = callback.data.split(":")
+    topic_id = int(parts[1])
+    content_type = parts[2]  # "theory" | "practice"
 
     async with SessionLocal() as session:
+        user_school = await session.get(UserSchool, callback.from_user.id)
+        school_id = user_school.school_id if user_school else None
+
         topic = await session.get(Topic, topic_id, options=[selectinload(Topic.subject)])
-        result = await session.execute(
+
+        query = (
             select(Note)
-            .where(Note.topic_id == topic_id)
+            .where(Note.topic_id == topic_id, Note.content_type == content_type)
             .order_by(Note.title)
         )
+        if school_id:
+            query = query.where(Note.school_id == school_id)
+
+        result = await session.execute(query)
         notes = result.scalars().all()
 
     if not notes:
@@ -28,18 +43,13 @@ async def show_notes(callback: CallbackQuery):
 
     builder = InlineKeyboardBuilder()
     for note in notes:
-        builder.button(
-            text=f"📄 {note.title}",
-            callback_data=f"note:{note.id}"
-        )
-    builder.button(
-        text="◀️ Назад",
-        callback_data=f"subject:{topic.subject_id}"
-    )
+        builder.button(text=f"📄 {note.title}", callback_data=f"note:{note.id}")
+    builder.button(text="◀️ Назад", callback_data=f"back:topics:{topic.subject_id}")
     builder.adjust(1)
 
+    type_label = CONTENT_LABELS.get(content_type, content_type)
     await callback.message.edit_text(
-        f"📝 *{topic.name}*\n\nВыбери конспект:",
+        f"📝 *{topic.name}* — {type_label}\n\nВыбери конспект:",
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
@@ -73,14 +83,3 @@ async def send_note(callback: CallbackQuery, bot: Bot):
             caption=f"🖼 *{note.title}*",
             parse_mode="Markdown"
         )
-
-
-@router.callback_query(F.data == "back:start")
-async def back_to_start(callback: CallbackQuery):
-    from handlers.start import get_subjects_keyboard
-    _, keyboard = await get_subjects_keyboard()
-    await callback.message.edit_text(
-        "📚 Выбери предмет:",
-        reply_markup=keyboard
-    )
-    await callback.answer()

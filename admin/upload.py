@@ -6,16 +6,17 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
-from database.db import SessionLocal, Subject, Topic, Note
+from database.db import SessionLocal, Subject, Topic, Note, School
 from config import ADMIN_IDS
 
 router = Router()
 
 
-# --- FSM состояния ---
 class UploadNote(StatesGroup):
     choosing_subject = State()
     choosing_topic = State()
+    choosing_school = State()
+    choosing_content_type = State()
     entering_title = State()
     waiting_file = State()
 
@@ -30,12 +31,15 @@ class AddTopic(StatesGroup):
     entering_name = State()
 
 
-# --- Проверка что это админ ---
+class AddSchool(StatesGroup):
+    entering_name = State()
+    entering_emoji = State()
+
+
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-# --- Главное админ меню ---
 @router.message(Command("admin"))
 async def admin_menu(message: Message):
     if not is_admin(message.from_user.id):
@@ -45,6 +49,7 @@ async def admin_menu(message: Message):
     builder.button(text="➕ Добавить конспект", callback_data="admin:upload")
     builder.button(text="📚 Добавить предмет", callback_data="admin:add_subject")
     builder.button(text="📝 Добавить тему", callback_data="admin:add_topic")
+    builder.button(text="🏫 Добавить школу", callback_data="admin:add_school")
     builder.adjust(1)
 
     await message.answer("🛠 *Админ панель*", parse_mode="Markdown", reply_markup=builder.as_markup())
@@ -95,9 +100,43 @@ async def upload_choose_topic(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("upl_topic:"), UploadNote.choosing_topic)
-async def upload_enter_title(callback: CallbackQuery, state: FSMContext):
+async def upload_choose_school(callback: CallbackQuery, state: FSMContext):
     topic_id = int(callback.data.split(":")[1])
     await state.update_data(topic_id=topic_id)
+
+    async with SessionLocal() as session:
+        result = await session.execute(select(School).order_by(School.name))
+        schools = result.scalars().all()
+
+    builder = InlineKeyboardBuilder()
+    for s in schools:
+        builder.button(text=f"{s.emoji} {s.name}", callback_data=f"upl_school:{s.id}")
+    builder.adjust(1)
+
+    await callback.message.edit_text("Выбери школу:", reply_markup=builder.as_markup())
+    await state.set_state(UploadNote.choosing_school)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("upl_school:"), UploadNote.choosing_school)
+async def upload_choose_content_type(callback: CallbackQuery, state: FSMContext):
+    school_id = int(callback.data.split(":")[1])
+    await state.update_data(school_id=school_id)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📖 Теория", callback_data="upl_type:theory")
+    builder.button(text="✏️ Практика", callback_data="upl_type:practice")
+    builder.adjust(2)
+
+    await callback.message.edit_text("Это теория или практика?", reply_markup=builder.as_markup())
+    await state.set_state(UploadNote.choosing_content_type)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("upl_type:"), UploadNote.choosing_content_type)
+async def upload_enter_title(callback: CallbackQuery, state: FSMContext):
+    content_type = callback.data.split(":")[1]
+    await state.update_data(content_type=content_type)
 
     await callback.message.edit_text("Введи название конспекта:")
     await state.set_state(UploadNote.entering_title)
@@ -119,12 +158,14 @@ async def upload_save_file(message: Message, state: FSMContext):
         file_id = message.document.file_id
         file_type = "document"
     else:
-        file_id = message.photo[-1].file_id  # Берём самое высокое качество
+        file_id = message.photo[-1].file_id
         file_type = "photo"
 
     async with SessionLocal() as session:
         note = Note(
             topic_id=data["topic_id"],
+            school_id=data["school_id"],
+            content_type=data["content_type"],
             title=data["title"],
             file_id=file_id,
             file_type=file_type
@@ -208,3 +249,34 @@ async def add_topic_save(message: Message, state: FSMContext):
         await session.commit()
     await state.clear()
     await message.answer(f"✅ Тема *{message.text}* добавлена!", parse_mode="Markdown")
+
+
+# ========================
+# ДОБАВЛЕНИЕ ШКОЛЫ
+# ========================
+
+@router.callback_query(F.data == "admin:add_school")
+async def add_school_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    await callback.message.edit_text("Введи название школы (например: Умскул):")
+    await state.set_state(AddSchool.entering_name)
+    await callback.answer()
+
+
+@router.message(AddSchool.entering_name)
+async def add_school_emoji(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Введи эмодзи для школы (например: 🎓):")
+    await state.set_state(AddSchool.entering_emoji)
+
+
+@router.message(AddSchool.entering_emoji)
+async def add_school_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    async with SessionLocal() as session:
+        school = School(name=data["name"], emoji=message.text)
+        session.add(school)
+        await session.commit()
+    await state.clear()
+    await message.answer(f"✅ Школа *{data['name']}* добавлена!", parse_mode="Markdown")

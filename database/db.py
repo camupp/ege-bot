@@ -1,12 +1,10 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, ForeignKey, DateTime, func
-from typing import Optional
 import datetime
 
 from config import DATABASE_URL
 
-# Меняем postgresql:// на postgresql+asyncpg:// для asyncpg
 ASYNC_DB_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
 engine = create_async_engine(ASYNC_DB_URL, echo=False)
@@ -17,8 +15,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class School(Base):
+    __tablename__ = "schools"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    emoji: Mapped[str] = mapped_column(String(10), default="🏫")
+
+    notes: Mapped[list["Note"]] = relationship(back_populates="school", cascade="all, delete")
+
+
+class UserSchool(Base):
+    __tablename__ = "user_schools"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
+
+    school: Mapped["School"] = relationship()
+
+
 class Subject(Base):
-    """Предметы: Математика, Русский язык, История..."""
     __tablename__ = "subjects"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -29,7 +45,6 @@ class Subject(Base):
 
 
 class Topic(Base):
-    """Темы внутри предмета: Тригонометрия, Логарифмы..."""
     __tablename__ = "topics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -41,25 +56,21 @@ class Topic(Base):
 
 
 class Note(Base):
-    """Конспекты — храним file_id от Telegram"""
     __tablename__ = "notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"))
+    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
+    content_type: Mapped[str] = mapped_column(String(10))  # "theory" | "practice"
     title: Mapped[str] = mapped_column(String(300))
-    file_id: Mapped[str] = mapped_column(String(500))       # Telegram file_id
-    file_type: Mapped[str] = mapped_column(String(20))      # "document" | "photo"
+    file_id: Mapped[str] = mapped_column(String(500))
+    file_type: Mapped[str] = mapped_column(String(20))  # "document" | "photo"
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
     topic: Mapped["Topic"] = relationship(back_populates="notes")
+    school: Mapped["School"] = relationship(back_populates="notes")
 
 
 async def init_db():
-    """Создаём таблицы при старте"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-
-async def get_session() -> AsyncSession:
-    async with SessionLocal() as session:
-        yield session

@@ -12,7 +12,7 @@ async def build_topics_keyboard(subject_id: int):
     async with SessionLocal() as session:
         subject = await session.get(Subject, subject_id)
         result = await session.execute(
-            select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.name)
+            select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.id)
         )
         topics = result.scalars().all()
 

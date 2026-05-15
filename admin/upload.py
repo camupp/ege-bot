@@ -90,7 +90,7 @@ async def upload_choose_topic(callback: CallbackQuery, state: FSMContext):
 
     async with SessionLocal() as session:
         result = await session.execute(
-            select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.name)
+            select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.id)
         )
         topics = result.scalars().all()
 

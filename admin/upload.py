@@ -27,7 +27,7 @@ class AddSubject(StatesGroup):
 
 class AddTopic(StatesGroup):
     choosing_subject = State()
-    entering_name = State()
+    entering_names = State()
 
 
 class AddSchool(StatesGroup):
@@ -254,23 +254,51 @@ async def add_topic_start(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("topic_subj:"), AddTopic.choosing_subject)
-async def add_topic_name(callback: CallbackQuery, state: FSMContext):
+async def add_topic_batch_start(callback: CallbackQuery, state: FSMContext):
     subject_id = int(callback.data.split(":")[1])
-    await state.update_data(subject_id=subject_id)
-    await callback.message.edit_text("Введи название темы:")
-    await state.set_state(AddTopic.entering_name)
+    await state.update_data(subject_id=subject_id, count=0)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Готово", callback_data="topic_done")
+
+    await callback.message.edit_text(
+        "Отправляй темы по одной — каждая сохраняется сразу.\n\n"
+        "Когда закончишь — нажми *Готово*.",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(AddTopic.entering_names)
     await callback.answer()
 
 
-@router.message(AddTopic.entering_name)
-async def add_topic_save(message: Message, state: FSMContext):
+@router.message(AddTopic.entering_names, F.text)
+async def add_topic_save_one(message: Message, state: FSMContext):
     data = await state.get_data()
+    name = message.text.strip()
+
     async with SessionLocal() as session:
-        topic = Topic(subject_id=data["subject_id"], name=message.text)
+        topic = Topic(subject_id=data["subject_id"], name=name)
         session.add(topic)
         await session.commit()
+
+    count = data["count"] + 1
+    await state.update_data(count=count)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Готово", callback_data="topic_done")
+    await message.reply(f"✅ {count}. {name}", reply_markup=builder.as_markup())
+
+
+@router.callback_query(F.data == "topic_done", AddTopic.entering_names)
+async def add_topic_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    count = data.get("count", 0)
     await state.clear()
-    await message.answer(f"✅ Тема *{message.text}* добавлена!", parse_mode="Markdown")
+    await callback.message.edit_text(
+        f"✅ Готово. Добавлено тем: *{count}*",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 
 # ========================

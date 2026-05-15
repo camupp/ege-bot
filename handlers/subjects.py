@@ -8,13 +8,6 @@ from database.db import SessionLocal, Subject, Topic
 router = Router()
 
 
-def short_name(name: str) -> str:
-    for sep in (' — ', ' – ', ' - '):
-        if sep in name:
-            return name.split(sep)[0].strip()
-    return name
-
-
 async def build_topics_keyboard(subject_id: int):
     async with SessionLocal() as session:
         subject = await session.get(Subject, subject_id)
@@ -25,9 +18,7 @@ async def build_topics_keyboard(subject_id: int):
 
     builder = InlineKeyboardBuilder()
     for topic in topics:
-        short = short_name(topic.name)
-        builder.button(text=f"📖 {short} · Теория", callback_data=f"topic:{topic.id}:theory")
-        builder.button(text=f"✏️ {short} · Практика", callback_data=f"topic:{topic.id}:practice")
+        builder.button(text=topic.name, callback_data=f"topic_sel:{topic.id}")
     builder.button(text="◀️ Назад", callback_data="back:subjects")
     builder.adjust(1)
 
@@ -47,6 +38,28 @@ async def show_topics(callback: CallbackQuery):
         f"{subject.emoji} *{subject.name}*\n\nВыбери тему:",
         parse_mode="Markdown",
         reply_markup=keyboard
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("topic_sel:"))
+async def show_content_type(callback: CallbackQuery):
+    topic_id = int(callback.data.split(":")[1])
+
+    async with SessionLocal() as session:
+        topic = await session.get(Topic, topic_id)
+        subject = await session.get(Subject, topic.subject_id)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📖 Теория", callback_data=f"topic:{topic_id}:theory")
+    builder.button(text="✏️ Практика", callback_data=f"topic:{topic_id}:practice")
+    builder.button(text="◀️ Назад", callback_data=f"back:topics:{topic.subject_id}")
+    builder.adjust(2, 1)
+
+    await callback.message.edit_text(
+        f"{subject.emoji} *{topic.name}*\n\nЧто выбираешь?",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
     )
     await callback.answer()
 

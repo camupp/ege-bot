@@ -17,8 +17,7 @@ class UploadNote(StatesGroup):
     choosing_topic = State()
     choosing_school = State()
     choosing_content_type = State()
-    entering_title = State()
-    waiting_file = State()
+    batch_uploading = State()
 
 
 class AddSubject(StatesGroup):
@@ -40,13 +39,19 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+def done_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Готово", callback_data="upl_done")
+    return builder.as_markup()
+
+
 @router.message(Command("admin"))
 async def admin_menu(message: Message):
     if not is_admin(message.from_user.id):
         return
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="➕ Добавить конспект", callback_data="admin:upload")
+    builder.button(text="➕ Добавить конспекты", callback_data="admin:upload")
     builder.button(text="📚 Добавить предмет", callback_data="admin:add_subject")
     builder.button(text="📝 Добавить тему", callback_data="admin:add_topic")
     builder.button(text="🏫 Добавить школу", callback_data="admin:add_school")
@@ -56,7 +61,7 @@ async def admin_menu(message: Message):
 
 
 # ========================
-# ЗАГРУЗКА КОНСПЕКТА
+# ЗАГРУЗКА КОНСПЕКТОВ
 # ========================
 
 @router.callback_query(F.data == "admin:upload")
@@ -73,7 +78,7 @@ async def upload_start(callback: CallbackQuery, state: FSMContext):
         builder.button(text=f"{s.emoji} {s.name}", callback_data=f"upl_subj:{s.id}")
     builder.adjust(2)
 
-    await callback.message.edit_text("Выбери предмет для конспекта:", reply_markup=builder.as_markup())
+    await callback.message.edit_text("Выбери предмет:", reply_markup=builder.as_markup())
     await state.set_state(UploadNote.choosing_subject)
     await callback.answer()
 
@@ -91,7 +96,7 @@ async def upload_choose_topic(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     for t in topics:
-        builder.button(text=f"📝 {t.name}", callback_data=f"upl_topic:{t.id}")
+        builder.button(text=t.name, callback_data=f"upl_topic:{t.id}")
     builder.adjust(1)
 
     await callback.message.edit_text("Выбери тему:", reply_markup=builder.as_markup())
@@ -128,53 +133,70 @@ async def upload_choose_content_type(callback: CallbackQuery, state: FSMContext)
     builder.button(text="✏️ Практика", callback_data="upl_type:practice")
     builder.adjust(2)
 
-    await callback.message.edit_text("Это теория или практика?", reply_markup=builder.as_markup())
+    await callback.message.edit_text("Теория или практика?", reply_markup=builder.as_markup())
     await state.set_state(UploadNote.choosing_content_type)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("upl_type:"), UploadNote.choosing_content_type)
-async def upload_enter_title(callback: CallbackQuery, state: FSMContext):
+async def upload_batch_start(callback: CallbackQuery, state: FSMContext):
     content_type = callback.data.split(":")[1]
-    await state.update_data(content_type=content_type)
+    await state.update_data(content_type=content_type, count=0)
 
-    await callback.message.edit_text("Введи название конспекта:")
-    await state.set_state(UploadNote.entering_title)
+    await callback.message.edit_text(
+        "Отправляй файлы — бот сохранит каждый автоматически.\n"
+        "Название берётся из имени файла.\n\n"
+        "Когда закончишь — нажми *Готово*.",
+        parse_mode="Markdown",
+        reply_markup=done_keyboard()
+    )
+    await state.set_state(UploadNote.batch_uploading)
     await callback.answer()
 
 
-@router.message(UploadNote.entering_title)
-async def upload_wait_file(message: Message, state: FSMContext):
-    await state.update_data(title=message.text)
-    await message.answer("Теперь отправь файл (PDF, фото или документ):")
-    await state.set_state(UploadNote.waiting_file)
-
-
-@router.message(UploadNote.waiting_file, F.document | F.photo)
-async def upload_save_file(message: Message, state: FSMContext):
+@router.message(UploadNote.batch_uploading, F.document | F.photo)
+async def upload_batch_file(message: Message, state: FSMContext):
     data = await state.get_data()
 
     if message.document:
         file_id = message.document.file_id
         file_type = "document"
+        title = message.document.file_name or "Конспект"
+        # убираем расширение
+        if "." in title:
+            title = title.rsplit(".", 1)[0]
     else:
         file_id = message.photo[-1].file_id
         file_type = "photo"
+        title = f"Фото {data['count'] + 1}"
 
     async with SessionLocal() as session:
         note = Note(
             topic_id=data["topic_id"],
             school_id=data["school_id"],
             content_type=data["content_type"],
-            title=data["title"],
+            title=title,
             file_id=file_id,
-            file_type=file_type
+            file_type=file_type,
         )
         session.add(note)
         await session.commit()
 
+    count = data["count"] + 1
+    await state.update_data(count=count)
+    await message.reply(f"✅ {count}. {title}", reply_markup=done_keyboard())
+
+
+@router.callback_query(F.data == "upl_done", UploadNote.batch_uploading)
+async def upload_batch_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    count = data.get("count", 0)
     await state.clear()
-    await message.answer(f"✅ Конспект *{data['title']}* сохранён!", parse_mode="Markdown")
+    await callback.message.edit_text(
+        f"✅ Загрузка завершена. Сохранено конспектов: *{count}*",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 
 # ========================

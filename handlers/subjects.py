@@ -1,5 +1,3 @@
-import re
-
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -11,8 +9,10 @@ router = Router()
 
 
 def short_name(name: str) -> str:
-    match = re.search(r'№\d+', name)
-    return match.group() if match else name
+    for sep in (' — ', ' – ', ' - '):
+        if sep in name:
+            return name.split(sep)[0].strip()
+    return name
 
 
 async def build_topics_keyboard(subject_id: int):

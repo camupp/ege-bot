@@ -44,7 +44,7 @@ async def show_notes(callback: CallbackQuery):
     builder = InlineKeyboardBuilder()
     for note in notes:
         builder.button(text=f"📄 {note.title}", callback_data=f"note:{note.id}")
-    builder.button(text="◀️ Назад", callback_data=f"back:topics:{topic.subject_id}")
+    builder.button(text="◀️ Назад", callback_data=f"topic_sel:{topic_id}")
     builder.adjust(1)
 
     type_label = CONTENT_LABELS.get(content_type, content_type)
@@ -117,7 +117,7 @@ async def note_back_to_list(callback: CallbackQuery):
     builder = InlineKeyboardBuilder()
     for note in notes:
         builder.button(text=f"📄 {note.title}", callback_data=f"note:{note.id}")
-    builder.button(text="◀️ Назад", callback_data=f"back:topics:{topic.subject_id}")
+    builder.button(text="◀️ Назад", callback_data=f"topic_sel:{topic_id}")
     builder.adjust(1)
 
     type_label = CONTENT_LABELS.get(content_type, content_type)

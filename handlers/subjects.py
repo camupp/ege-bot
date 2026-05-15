@@ -1,3 +1,5 @@
+import re
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -6,6 +8,11 @@ from sqlalchemy import select
 from database.db import SessionLocal, Subject, Topic
 
 router = Router()
+
+
+def short_name(name: str) -> str:
+    match = re.search(r'№\d+', name)
+    return match.group() if match else name
 
 
 async def build_topics_keyboard(subject_id: int):
@@ -18,8 +25,9 @@ async def build_topics_keyboard(subject_id: int):
 
     builder = InlineKeyboardBuilder()
     for topic in topics:
-        builder.button(text=f"📖 {topic.name} · Теория", callback_data=f"topic:{topic.id}:theory")
-        builder.button(text=f"✏️ {topic.name} · Практика", callback_data=f"topic:{topic.id}:practice")
+        short = short_name(topic.name)
+        builder.button(text=f"📖 {short} · Теория", callback_data=f"topic:{topic.id}:theory")
+        builder.button(text=f"✏️ {short} · Практика", callback_data=f"topic:{topic.id}:practice")
     builder.button(text="◀️ Назад", callback_data="back:subjects")
     builder.adjust(1)
 
